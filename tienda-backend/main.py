@@ -1,5 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+import models
+from database import engine, SessionLocal
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -10,55 +17,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-products = [
-    {
-        "id": 1,
-        "title": "Camiseta básica",
-        "price": 19.99,
-        "image": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300&h=300&fit=crop",
-        "description": "Camiseta de algodón 100%, disponible en varios colores."
-    },
-    {
-        "id": 2,
-        "title": "Pantalón vaquero",
-        "price": 49.99,
-        "image": "https://images.unsplash.com/photo-1542272604-787c3835535d?w=300&h=300&fit=crop",
-        "description": "Vaquero slim fit, cómodo y resistente."
-    },
-    {
-        "id": 3,
-        "title": "Zapatillas blancas",
-        "price": 69.99,
-        "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=300&h=300&fit=crop",
-        "description": "Zapatillas deportivas ligeras, suela de goma."
-    },
-    {
-        "id": 4,
-        "title": "Sudadera con capucha",
-        "price": 39.99,
-        "image": "https://images.unsplash.com/photo-1509942774463-acf339cf87d5?w=300&h=300&fit=crop",
-        "description": "Sudadera unisex, interior afelpado muy suave."
-    },
-    {
-        "id": 5,
-        "title": "Gorra negra",
-        "price": 24.99,
-        "image": "https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=300&h=300&fit=crop",
-        "description": "Gorra de algodón con visera plana, estilo urbano."
-    }
-]
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+class ProductSchema(BaseModel):
+    title: str
+    price: float
+    image: str
+    description: str
 
 @app.get("/")
 def home():
     return {"mensaje": "Hola desde FastAPI"}
 
 @app.get("/products")
-def get_products():
-    return products
+def get_products(db: Session = Depends(get_db)):
+    return db.query(models.Product).all()
 
 @app.get("/products/{id}")
-def get_product(id: int):
-    product = next((p for p in products if p["id"] == id), None)
+def get_product(id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id).first()
     if product is None:
         return {"error": "Producto no encontrado"}
     return product
+
+@app.post("/products")
+def create_product(product: ProductSchema, db: Session = Depends(get_db)):
+    new_product = models.Product(**product.model_dump())
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+    return new_product
+
+@app.put("/products/{id}")
+def update_product(id: int, product: ProductSchema, db: Session = Depends(get_db)):
+    existing = db.query(models.Product).filter(models.Product.id == id).first()
+    if existing is None:
+        return {"error": "Producto no encontrado"}
+    for key, value in product.model_dump().items():
+        setattr(existing, key, value)
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+@app.delete("/products/{id}")
+def delete_product(id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id).first()
+    if product is None:
+        return {"error": "Producto no encontrado"}
+    db.delete(product)
+    db.commit()
+    return {"mensaje": "Producto eliminado"}
