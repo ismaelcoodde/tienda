@@ -10,7 +10,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 function App() {
   return (
     <>
-      <main>
+      <main className="flex flex-col items-center min-h-screen">
         <Header />
         <Routes>
           <Route path="/" element={<Home />} />
